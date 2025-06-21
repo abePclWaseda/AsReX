@@ -44,25 +44,24 @@ print(f"[1/3] separated (2 ch) ➜ {SEP_DIR}")
 # ======================================================
 # ② ReazonSpeech-NeMo 文字起こし（チャンネル毎）
 # ======================================================
-from reazonspeech.nemo.asr import load_model, transcribe, audio_from_path
+from reazonspeech.nemo.asr import load_model, transcribe, audio_from_numpy
 
 print("[2/3] loading ReazonSpeech-NeMo …")
 asr_model = load_model()
 
 
 def nemo_asr_numpy(audio_np: np.ndarray, sr: int = 16_000) -> dict:
-    """
-    numpy 配列 → 一時 WAV → NeMo ASR → dict
-    （audio_from_array が無い環境向けの簡易実装）
-    """
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
-        sf.write(tmp.name, audio_np, sr)
-        res = transcribe(asr_model, audio_from_path(tmp.name)).to_dict()
-    # 秒数フィールドを整形
-    for seg in res.get("segments", []):
-        seg["start"] = round(seg.pop("start_seconds"), 3)
-        seg["end"] = round(seg.pop("end_seconds"), 3)
-    return res
+    """NumPy 配列 → NeMo ASR → dict（I/O フリー版）"""
+    ret = transcribe(asr_model, audio_from_numpy(audio_np, sr))
+    segments = [
+        {
+            "start": round(s.start_seconds, 3),
+            "end":   round(s.end_seconds, 3),
+            "text":  s.text,
+        }
+        for s in ret.segments
+    ]
+    return {"text": ret.text, "segments": segments}
 
 
 SPEAKER_LIST = ("A", "B")  # ch=0 → A, ch=1 → B
