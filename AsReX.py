@@ -29,7 +29,7 @@ from asteroid.models import ConvTasNet
 
 print("[1/3] loading ConvTasNet …")
 sep_model = ConvTasNet.from_pretrained("JorisCos/ConvTasNet_Libri2Mix_sepclean_16k")
-sep_model.eval()
+sep_model.to("cuda").eval()
 
 for wav in tqdm(sorted(IN_DIR.glob("*.wav")), desc="separating"):
     y, _ = librosa.load(wav, sr=16_000)  # 16 kHz モノラル
