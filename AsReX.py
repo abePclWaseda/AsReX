@@ -88,12 +88,14 @@ DEVICE = "cuda"
 COMPUTE_TYPE = "float16"
 HF_TOKEN = os.getenv("HUGGINGFACE_AUTH_TOKEN")
 
-print("[3/3] loading WhisperX …")
-w_model = whisperx.load_model("large-v2", DEVICE, compute_type=COMPUTE_TYPE)
-align_model, meta = whisperx.load_align_model("ja", DEVICE)
+print("[3/3] loading WhisperX align model …")
+align_model, meta = whisperx.load_align_model(
+    "ja",                 # 言語コード
+    DEVICE,               # "cuda" or "cpu"
+)
 
 for wav in tqdm(sorted(SEP_DIR.glob("*.wav")), desc="aligning"):
-    y, sr = sf.read(wav)  # (T, 2)
+    y, sr = sf.read(wav, dtype="float32")  # (T, 2)
     merged = []
 
     for ch, spk in enumerate(SPEAKER_LIST):
