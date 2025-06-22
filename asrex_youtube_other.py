@@ -86,7 +86,7 @@ print(f"[2/3] transcripts ➜ {TXT_DIR}")
 # ======================================================
 import whisperx, traceback
 
-LOG_FILE = open("align_errors.log", "a")
+LOG_FILE = open("align_errors_youtube_other.log", "a")
 
 
 def log(msg):
