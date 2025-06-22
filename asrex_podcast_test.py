@@ -3,6 +3,8 @@
 """
 2-speaker separation ➜ ReazonSpeech-NeMo ASR ➜ WhisperX alignment
 最終出力は A/B が混在した 1 本の JSON。
+
+podcast_test の処理は完璧．
 """
 
 # -------------------- 共通ライブラリ --------------------
