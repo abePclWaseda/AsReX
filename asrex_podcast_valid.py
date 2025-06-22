@@ -84,7 +84,16 @@ print(f"[2/3] transcripts ➜ {TXT_DIR}")
 # ======================================================
 # ③ WhisperX で単語アラインし、A/B を時間順に結合
 # ======================================================
-import whisperx
+import whisperx, traceback
+
+LOG_FILE = open("align_errors_podcast_valid.log", "a")
+
+
+def log(msg):
+    print(msg)
+    LOG_FILE.write(msg + "\n")
+    LOG_FILE.flush()
+
 
 load_dotenv()
 COMPUTE_TYPE = "float16"
@@ -97,39 +106,46 @@ align_model, meta = whisperx.load_align_model(
 )
 
 for wav in tqdm(wav_sep_list, desc="aligning"):
-    y, sr = sf.read(wav, dtype="float32")  # (T, 2)
-    merged = []
+    log((f"\n=== aligning {wav.relative_to(SEP_DIR)} ==="))
+    try:
+        y, sr = sf.read(wav, dtype="float32")  # (T, 2)
+        merged = []
 
-    for ch, spk in enumerate(SPEAKER_LIST):
-        txt_path = TXT_DIR / f"{wav.stem}_{spk}.json"
-        segs = json.load(txt_path.open())["segments"]
+        for ch, spk in enumerate(SPEAKER_LIST):
+            txt_path = TXT_DIR / f"{wav.stem}_{spk}.json"
+            segs = json.load(txt_path.open())["segments"]
 
-        # WhisperX align
-        aligned = whisperx.align(
-            segs,
-            align_model,
-            meta,
-            y[:, ch],  # numpy 1-ch
-            DEVICE,
-            return_char_alignments=False,
-        )
+            # WhisperX align
+            aligned = whisperx.align(
+                segs,
+                align_model,
+                meta,
+                y[:, ch],  # numpy 1-ch
+                DEVICE,
+                return_char_alignments=False,
+            )
 
-        # 単語を取り出して merged へ追加
-        merged.extend(
-            {
-                "speaker": spk,
-                "word": w["word"],
-                "start": round(w["start"], 3),
-                "end": round(w["end"], 3),
-            }
-            for seg in aligned["segments"]
-            for w in seg["words"]
-        )
+            # 単語を取り出して merged へ追加
+            merged.extend(
+                {
+                    "speaker": spk,
+                    "word": w["word"],
+                    "start": round(w["start"], 3),
+                    "end": round(w["end"], 3),
+                }
+                for seg in aligned["segments"]
+                for w in seg["words"]
+            )
 
-    # ★ start 時刻でソートして A/B 混在の 1 本に
-    merged.sort(key=lambda x: x["start"])
+        # ★ start 時刻でソートして A/B 混在の 1 本に
+        merged.sort(key=lambda x: x["start"])
 
-    out_path = ALN_DIR / f"{wav.stem}.json"
-    json.dump(merged, out_path.open("w"), ensure_ascii=False, indent=2)
+        out_path = ALN_DIR / f"{wav.stem}.json"
+        json.dump(merged, out_path.open("w"), ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        log(f"\n!!  ERROR while aligning {wav.relative_to(SEP_DIR)}  !!")
+        traceback.print_exc()
+        continue
 
 print(f"[3/3] aligned words (A+B) ➜ {ALN_DIR}")
