@@ -14,14 +14,13 @@ import torch, soundfile as sf, librosa
 from dotenv import load_dotenv
 
 # -------------------- パス設定 --------------------
-IN_ROOT = Path("/mnt/work-qnap/llmc/J-CHAT/audio/podcast_test")
-SEP_DIR = Path("/mnt/kiso-qnap3/yuabe/m1/AsReX/data/J-CHAT/audio/podcast_test")
-TXT_DIR = Path("/mnt/kiso-qnap3/yuabe/m1/AsReX/data/J-CHAT/transcripts/podcast_test")
-ALN_DIR = Path("/mnt/kiso-qnap3/yuabe/m1/AsReX/data/J-CHAT/text/podcast_test")
+IN_DIR = Path("/mnt/work-qnap/llmc/J-CHAT/audio/podcast_test/00000-of-00001/cuts.000000")  # 元音声 (モノラル)
+SEP_DIR = Path("/mnt/kiso-qnap3/yuabe/m1/AsReX/data/J-CHAT/audio/podcast_test")  # 2 ch WAV を置く
+TXT_DIR = Path("/mnt/kiso-qnap3/yuabe/m1/AsReX/data/J-CHAT/transcripts/podcast_test")  # ASR 出力 (中間)
+ALN_DIR = Path("/mnt/kiso-qnap3/yuabe/m1/AsReX/data/J-CHAT/text/podcast_test")  # 最終 JSON
+
 for p in (SEP_DIR, TXT_DIR, ALN_DIR):
     p.mkdir(parents=True, exist_ok=True)
-
-DEVICE = "cuda:1"
 
 # ======================================================
 # ① ConvTasNet で 2 ch 分離し、1 本のステレオ WAV を保存
@@ -30,15 +29,14 @@ from asteroid.models import ConvTasNet
 
 print("[1/3] loading ConvTasNet …")
 sep_model = ConvTasNet.from_pretrained("JorisCos/ConvTasNet_Libri2Mix_sepclean_16k")
-sep_model.to(DEVICE).eval()
+sep_model.to("cuda").eval()
 
-wav_list = sorted(IN_ROOT.rglob("*.wav"))
-for wav in tqdm(wav_list, desc=f"separating ({len(wav_list)})"):
-    y, _ = librosa.load(wav, sr=16_000)
-    est = sep_model.separate(torch.tensor(y).unsqueeze(0))
-    stereo = est[0].cpu().numpy().T
-    out_path = SEP_DIR / f"{wav.stem}.wav"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+for wav in tqdm(sorted(IN_DIR.glob("*.wav")), desc="separating"):
+    y, _ = librosa.load(wav, sr=16_000)  # 16 kHz モノラル
+    est = sep_model.separate(torch.tensor(y).unsqueeze(0))  # (1, 2, T)
+    stereo = est[0].cpu().numpy().T  # (T, 2)
+
+    out_path = SEP_DIR / f"{wav.stem}.wav"  # ★ 2 ch で 1 ファイル
     sf.write(out_path, stereo, 16_000)
 
 print(f"[1/3] separated (2 ch) ➜ {SEP_DIR}")
@@ -49,7 +47,7 @@ print(f"[1/3] separated (2 ch) ➜ {SEP_DIR}")
 from reazonspeech.nemo.asr import load_model, transcribe, audio_from_numpy
 
 print("[2/3] loading ReazonSpeech-NeMo …")
-asr_model = load_model(device=DEVICE)
+asr_model = load_model()
 
 
 def nemo_asr_numpy(audio_np: np.ndarray, sr: int = 16_000) -> dict:
@@ -58,8 +56,8 @@ def nemo_asr_numpy(audio_np: np.ndarray, sr: int = 16_000) -> dict:
     segments = [
         {
             "start": round(s.start_seconds, 3),
-            "end": round(s.end_seconds, 3),
-            "text": s.text,
+            "end":   round(s.end_seconds, 3),
+            "text":  s.text,
         }
         for s in ret.segments
     ]
@@ -68,14 +66,13 @@ def nemo_asr_numpy(audio_np: np.ndarray, sr: int = 16_000) -> dict:
 
 SPEAKER_LIST = ("A", "B")  # ch=0 → A, ch=1 → B
 
-wav_sep_list = sorted(SEP_DIR.glob("*.wav"))
-for wav in tqdm(wav_sep_list, desc=f"ASR ({len(wav_sep_list)})"):
-    y, sr = sf.read(wav)
+for wav in tqdm(sorted(SEP_DIR.glob("*.wav")), desc="ASR"):
+    y, sr = sf.read(wav)  # y.shape == (T, 2)
+
     for ch, spk in enumerate(SPEAKER_LIST):
         txt_path = TXT_DIR / f"{wav.stem}_{spk}.json"
         if txt_path.exists():
             continue
-        txt_path.parent.mkdir(parents=True, exist_ok=True)
         res = nemo_asr_numpy(y[:, ch], sr)
         json.dump(res, txt_path.open("w"), ensure_ascii=False, indent=2)
 
@@ -87,16 +84,17 @@ print(f"[2/3] transcripts ➜ {TXT_DIR}")
 import whisperx
 
 load_dotenv()
+DEVICE = "cuda"
 COMPUTE_TYPE = "float16"
 HF_TOKEN = os.getenv("HUGGINGFACE_AUTH_TOKEN")
 
 print("[3/3] loading WhisperX align model …")
 align_model, meta = whisperx.load_align_model(
-    "ja",  # 言語コード
-    DEVICE,  # "cuda" or "cpu"
+    "ja",                 # 言語コード
+    DEVICE,               # "cuda" or "cpu"
 )
 
-for wav in tqdm(wav_sep_list, desc="aligning"):
+for wav in tqdm(sorted(SEP_DIR.glob("*.wav")), desc="aligning"):
     y, sr = sf.read(wav, dtype="float32")  # (T, 2)
     merged = []
 
